@@ -1,0 +1,5 @@
+# SOAR Pipeline Requirements
+# Python 3.10+
+
+# YAML configuration file support
+PyYAML==6.0.3
