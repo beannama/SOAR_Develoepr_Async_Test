@@ -106,10 +106,7 @@ def enrich(alert: Dict[str, Any]) -> Dict[str, Any]:
 			else:
 				enrichment["summary"]["unknown"] += 1
 
-	mitre_techniques = ti.get_mitre_techniques(alert.get("type", ""))
-
 	enriched_alert = alert.copy()
 	enriched_alert["enrichment"] = enrichment
-	enriched_alert["mitre_techniques"] = mitre_techniques
 	return enriched_alert
 

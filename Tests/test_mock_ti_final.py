@@ -123,8 +123,6 @@ def main():
     print(f"  Unknown:       {summary['unknown']}")
     print(f"  Whitelisted:   {summary['whitelisted']}")
     
-    print(f"\nMITRE Techniques: {enriched_alert['mitre_techniques']}")
-    
     print("\nEnriched IOCs:")
     for ioc in enrichment['enriched_iocs']:
         print(f"  {ioc['ioc_type']:10} {ioc['ioc_value']:50}")

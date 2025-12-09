@@ -35,6 +35,11 @@ class TriageConfigLoader:
         
         self.config_path = config_path
         self.config = self._load_and_validate()
+        
+        # Load MITRE mapping from shared configs
+        config_dir = os.path.dirname(os.path.dirname(os.path.dirname(config_path)))
+        mitre_path = os.path.join(config_dir, "SOAR", "configs", "mitre_map.yml")
+        self.mitre_map = self._load_mitre_map(mitre_path)
     
     def _load_and_validate(self) -> Dict[str, Any]:
         """Load config file and validate structure."""
@@ -147,6 +152,77 @@ class TriageConfigLoader:
         
         # Default to informational if no match
         return "informational"
+    
+    def _load_mitre_map(self, mitre_path: str) -> Dict[str, Any]:
+        """
+        Load and validate mitre_map.yml.
+        
+        Args:
+            mitre_path: Path to mitre_map.yml file
+            
+        Returns:
+            Parsed MITRE mapping configuration
+            
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            yaml.YAMLError: If YAML is malformed
+            ValueError: If required keys are missing
+        """
+        if not os.path.isfile(mitre_path):
+            raise FileNotFoundError(f"MITRE map file not found: {mitre_path}")
+        
+        try:
+            with open(mitre_path, 'r') as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise yaml.YAMLError(f"Malformed YAML in mitre_map.yml: {str(e)}")
+        
+        if data is None:
+            raise ValueError("mitre_map.yml is empty")
+        
+        # Validate structure
+        if "types" not in data:
+            raise ValueError("mitre_map.yml missing required key: 'types'")
+        if "defaults" not in data:
+            raise ValueError("mitre_map.yml missing required key: 'defaults'")
+        
+        if not isinstance(data["types"], dict):
+            raise ValueError("mitre_map.yml 'types' must be a dictionary")
+        if not isinstance(data["defaults"], list):
+            raise ValueError("mitre_map.yml 'defaults' must be a list")
+        
+        # Validate default techniques are strings
+        if not all(isinstance(t, str) for t in data["defaults"]):
+            raise ValueError("mitre_map.yml 'defaults' contains non-string values")
+        
+        # Validate each alert type maps to a list
+        for alert_type, techniques in data["types"].items():
+            if not isinstance(techniques, list):
+                raise ValueError(f"MITRE techniques for '{alert_type}' must be a list")
+            if not all(isinstance(t, str) for t in techniques):
+                raise ValueError(f"MITRE techniques for '{alert_type}' contains non-string values")
+        
+        return data
+    
+    def get_mitre_techniques(self, alert_type: str) -> List[str]:
+        """
+        Get MITRE ATT&CK techniques for an alert type.
+        
+        Args:
+            alert_type: Alert type from alert.type field
+            
+        Returns:
+            List of MITRE T-codes for this alert type,
+            or defaults if alert_type not found
+            
+        Raises:
+            ValueError: If alert_type is not a string
+        """
+        if not isinstance(alert_type, str):
+            raise ValueError(f"alert_type must be string, got {type(alert_type)}")
+        
+        # Return techniques for this alert type, or defaults if not found
+        return self.mitre_map["types"].get(alert_type, self.mitre_map["defaults"])
 
 
 class SuppressionEngine:

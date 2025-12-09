@@ -103,11 +103,6 @@ def _validate_enriched_alert(alert: Dict[str, Any]) -> None:
     
     if not isinstance(alert["type"], str) or not alert["type"].strip():
         raise ValueError("Alert 'type' must be a non-empty string")
-    
-    # Check for MITRE techniques (optional but should be present from enrichment)
-    if "mitre_techniques" in alert:
-        if not isinstance(alert["mitre_techniques"], list):
-            raise ValueError("mitre_techniques must be a list")
 
 
 def triage(enriched_alert: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,7 +133,9 @@ def triage(enriched_alert: Dict[str, Any]) -> Dict[str, Any]:
     # Extract data
     summary = enriched_alert["enrichment"]["summary"]
     alert_type = enriched_alert["type"]
-    mitre_techniques = enriched_alert.get("mitre_techniques", [])
+    
+    # Generate MITRE techniques for this alert type
+    mitre_techniques = config_loader.get_mitre_techniques(alert_type)
     
     # Initialize triage result
     triage_result = {
@@ -147,7 +144,7 @@ def triage(enriched_alert: Dict[str, Any]) -> Dict[str, Any]:
         "severity_score": 0,
         "priority": "informational",
         "tags": [],
-        "mitre_techniques": mitre_techniques.copy() if mitre_techniques else [],
+        "mitre_techniques": mitre_techniques,
         "scoring_details": {}
     }
     

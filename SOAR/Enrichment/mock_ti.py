@@ -858,11 +858,7 @@ class MockTI:
         
         return "clean"
 
-    def get_mitre_techniques(self, alert_type: str) -> List[str]:
-        """Public helper to resolve MITRE techniques for an alert type."""
-        if not isinstance(alert_type, str):
-            raise ValueError("alert_type must be a string")
-        return self.mitre.get_techniques(alert_type)
+    
     
 
 
