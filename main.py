@@ -25,12 +25,16 @@ def parse_args():
 
 
 from SOAR.Ingest.loader import load_alert
+from SOAR.Enrichment.enricher import enrich
 
 def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
     alert = load_alert(path=args.input, use_sample=args.sample)
+
+    # Enrich alert with local mock TI and MITRE mapping
+    alert = enrich(alert)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)

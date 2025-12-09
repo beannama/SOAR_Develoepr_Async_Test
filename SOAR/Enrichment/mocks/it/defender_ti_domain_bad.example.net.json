@@ -1,0 +1,9 @@
+{
+    "domain": "bad.example.net",
+    "reputation": "malicious",
+    "score": 92,
+    "categories": [
+        "phishing",
+        "credential-theft"
+    ]
+}

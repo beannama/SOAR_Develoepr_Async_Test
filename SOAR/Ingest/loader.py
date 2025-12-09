@@ -29,6 +29,8 @@ SAMPLE_ALERT = {
   "raw": { "provider": "azure", "workspace": "prod", "rule_id": "AZ-CRED-77" }
 }
 
+
+
 def load_alert(path: str = None, use_sample: bool = False) -> dict:
     """Load an alert from a JSON file or return a sample alert."""
     if use_sample:
