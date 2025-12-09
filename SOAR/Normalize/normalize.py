@@ -110,24 +110,19 @@ def _flatten_nested_dict(obj: Any, prefix: str = "", max_depth: int = 10, curren
 	return flattened
 
 
-def normalize(alert: Dict[str, Any], flatten: bool = False) -> Dict[str, Any]:
+def normalize(alert: Dict[str, Any]) -> Dict[str, Any]:
 	"""
 	Normalize a raw alert into an internal incident shape.
 
 	- Keeps the original alert under incident.source_alert
-	- Flattens indicators into a list of {type, value}
 	- Preserves asset data (device_id, hostname, ip) when present
-	- Optionally flattens nested structures using dot notation (e.g., asset.device_id)
 	- Retains original indicator dict for compatibility with existing enrichment
 
 	Args:
 		alert: Raw alert dictionary from ingestion
-		flatten: If True, flatten nested dicts in incident block using dot notation
 
 	Returns:
-		Normalized alert dictionary with original fields + 'incident' block and
-		'normalized_indicators' list. If flatten=True, incident block contains
-		dot-notation flattened keys alongside indicators list.
+		Normalized alert dictionary with original fields.
 
 	Raises:
 		ValueError: If input structure is invalid or flattening fails
@@ -136,25 +131,11 @@ def normalize(alert: Dict[str, Any], flatten: bool = False) -> Dict[str, Any]:
 
 	flattened_indicators = _flatten_indicators(alert["indicators"])
 
-	# Build incident block
-	incident_block: Dict[str, Any] = {
-		"source_alert": copy.deepcopy(alert),
-		"asset": copy.deepcopy(alert.get("asset", {})),
-		"indicators": flattened_indicators,
-	}
-	
-	# Add raw if present
-	if "raw" in alert:
-		incident_block["raw"] = copy.deepcopy(alert["raw"])
-	
-	# Optionally flatten nested structures in incident
-	if flatten:
-		flattened_incident = _flatten_nested_dict(incident_block)
-		incident_block = flattened_incident
 
 	# Build complete normalized alert preserving all original top-level fields
-	normalized_alert: Dict[str, Any] = {}
+    
+	normalized_alert = copy.deepcopy(alert)
 	normalized_alert["source_alert"] = copy.deepcopy(alert)
-	normalized_alert["incident"] = incident_block
+	normalized_alert["indicators"] = flattened_indicators
 
 	return normalized_alert
