@@ -1,436 +1,302 @@
-'''
-Triage Rules Engine
+"""
+Deterministic triage rules.
 
-Purpose: Deterministic rule evaluation for alert triage.
-
-Components:
-- TriageConfigLoader: Load and validate triage configuration
-- SuppressionEngine: Evaluate suppression rules
-- SeverityScorer: Calculate deterministic severity scores
-- TagGenerator: Generate alert tags based on rules
-'''
+Currently implements severity scoring using:
+- Base severity per alert type (with Unknown fallback)
+- Intel boosts from indicator risk verdicts
+"""
 
 import os
+from typing import Any, Dict, List
+
 import yaml
-from typing import Dict, List, Any, Optional, Tuple
+
+__all__ = ["TriageConfigLoader", "SeverityScorer", "AllowlistLoader", "SuppressionEngine", "BucketClassifier", "MitreMapper"]
 
 
 class TriageConfigLoader:
-    """Load and validate triage configuration from YAML."""
-    
-    def __init__(self, config_path: str) -> None:
-        """
-        Initialize TriageConfigLoader.
-        
-        Args:
-            config_path: Path to config.yml file
-            
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-            yaml.YAMLError: If YAML is malformed
-            ValueError: If config structure is invalid
-        """
-        if not os.path.isfile(config_path):
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        
-        self.config_path = config_path
-        self.config = self._load_and_validate()
-        
-        # Load MITRE mapping from shared configs
-        config_dir = os.path.dirname(os.path.dirname(os.path.dirname(config_path)))
-        mitre_path = os.path.join(config_dir, "SOAR", "configs", "mitre_map.yml")
-        self.mitre_map = self._load_mitre_map(mitre_path)
-    
-    def _load_and_validate(self) -> Dict[str, Any]:
-        """Load config file and validate structure."""
-        try:
-            with open(self.config_path, 'r') as f:
-                config = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Malformed YAML in config: {str(e)}")
-        
-        if config is None:
-            raise ValueError("Config file is empty")
-        
-        # Validate required top-level keys
-        required_keys = ["severity", "tags", "suppression", "prioritization"]
-        for key in required_keys:
-            if key not in config:
-                raise ValueError(f"Missing required config key: '{key}'")
-        
-        # Validate severity structure
-        self._validate_severity(config["severity"])
-        
-        # Validate suppression structure
-        self._validate_suppression(config["suppression"])
-        
-        # Validate prioritization structure
-        self._validate_prioritization(config["prioritization"])
-        
-        return config
-    
-    def _validate_severity(self, severity: Dict[str, Any]) -> None:
-        """Validate severity configuration."""
-        if "weights" not in severity:
-            raise ValueError("severity.weights is required")
-        
-        weights = severity["weights"]
-        required_weights = ["malicious", "suspicious", "unknown", "clean", "whitelisted"]
-        for weight in required_weights:
-            if weight not in weights:
-                raise ValueError(f"Missing severity weight: '{weight}'")
-            if not isinstance(weights[weight], (int, float)) or weights[weight] < 0:
-                raise ValueError(f"Invalid weight for '{weight}': must be non-negative number")
-        
-        if "multipliers" not in severity:
-            raise ValueError("severity.multipliers is required")
-        
-        if "max_score" not in severity:
-            raise ValueError("severity.max_score is required")
-        
-        if not isinstance(severity["max_score"], int) or severity["max_score"] <= 0:
-            raise ValueError("severity.max_score must be positive integer")
-    
-    def _validate_suppression(self, suppression: Dict[str, Any]) -> None:
-        """Validate suppression rules."""
-        if "rules" not in suppression:
-            raise ValueError("suppression.rules is required")
-        
-        if not isinstance(suppression["rules"], list):
-            raise ValueError("suppression.rules must be a list")
-        
-        for rule in suppression["rules"]:
-            if not isinstance(rule, dict):
-                raise ValueError("Each suppression rule must be a dictionary")
-            if "name" not in rule or "condition" not in rule or "reason" not in rule:
-                raise ValueError("Suppression rule must have 'name', 'condition', and 'reason'")
-    
-    def _validate_prioritization(self, prioritization: Dict[str, Any]) -> None:
-        """Validate priority thresholds."""
-        required_priorities = ["critical", "high", "medium", "low", "informational"]
-        for priority in required_priorities:
-            if priority not in prioritization:
-                raise ValueError(f"Missing priority level: '{priority}'")
-            
-            level = prioritization[priority]
-            if "min" not in level or "max" not in level:
-                raise ValueError(f"Priority '{priority}' must have 'min' and 'max' fields")
-    
-    def get_severity_weights(self) -> Dict[str, float]:
-        """Get severity weights."""
-        return self.config["severity"]["weights"]
-    
-    def get_alert_type_multiplier(self, alert_type: str) -> float:
-        """Get multiplier for alert type."""
-        multipliers = self.config["severity"]["multipliers"]["alert_types"]
-        return multipliers.get(alert_type, multipliers.get("default", 1.0))
-    
-    def get_max_score(self) -> int:
-        """Get maximum severity score."""
-        return self.config["severity"]["max_score"]
-    
-    def get_suppression_rules(self) -> List[Dict[str, str]]:
-        """Get suppression rules."""
-        return self.config["suppression"]["rules"]
-    
-    def get_alert_type_tags(self, alert_type: str) -> List[str]:
-        """Get tags for alert type."""
-        by_type = self.config["tags"].get("by_alert_type", {})
-        return by_type.get(alert_type, [])
-    
-    def get_threat_distribution_rules(self) -> List[Dict[str, Any]]:
-        """Get threat distribution tagging rules."""
-        return self.config["tags"].get("by_threat_distribution", [])
-    
-    def get_priority_for_score(self, score: int) -> str:
-        """Determine priority level based on severity score."""
-        priorities = self.config["prioritization"]
-        
-        for priority_name, thresholds in priorities.items():
-            if thresholds["min"] <= score <= thresholds["max"]:
-                return priority_name
-        
-        # Default to informational if no match
-        return "informational"
-    
-    def _load_mitre_map(self, mitre_path: str) -> Dict[str, Any]:
-        """
-        Load and validate mitre_map.yml.
-        
-        Args:
-            mitre_path: Path to mitre_map.yml file
-            
-        Returns:
-            Parsed MITRE mapping configuration
-            
-        Raises:
-            FileNotFoundError: If file doesn't exist
-            yaml.YAMLError: If YAML is malformed
-            ValueError: If required keys are missing
-        """
-        if not os.path.isfile(mitre_path):
-            raise FileNotFoundError(f"MITRE map file not found: {mitre_path}")
-        
-        try:
-            with open(mitre_path, 'r') as f:
-                data = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise yaml.YAMLError(f"Malformed YAML in mitre_map.yml: {str(e)}")
-        
-        if data is None:
-            raise ValueError("mitre_map.yml is empty")
-        
-        # Validate structure
-        if "types" not in data:
-            raise ValueError("mitre_map.yml missing required key: 'types'")
-        if "defaults" not in data:
-            raise ValueError("mitre_map.yml missing required key: 'defaults'")
-        
-        if not isinstance(data["types"], dict):
-            raise ValueError("mitre_map.yml 'types' must be a dictionary")
-        if not isinstance(data["defaults"], list):
-            raise ValueError("mitre_map.yml 'defaults' must be a list")
-        
-        # Validate default techniques are strings
-        if not all(isinstance(t, str) for t in data["defaults"]):
-            raise ValueError("mitre_map.yml 'defaults' contains non-string values")
-        
-        # Validate each alert type maps to a list
-        for alert_type, techniques in data["types"].items():
-            if not isinstance(techniques, list):
-                raise ValueError(f"MITRE techniques for '{alert_type}' must be a list")
-            if not all(isinstance(t, str) for t in techniques):
-                raise ValueError(f"MITRE techniques for '{alert_type}' contains non-string values")
-        
-        return data
-    
-    def get_mitre_techniques(self, alert_type: str) -> List[str]:
-        """
-        Get MITRE ATT&CK techniques for an alert type.
-        
-        Args:
-            alert_type: Alert type from alert.type field
-            
-        Returns:
-            List of MITRE T-codes for this alert type,
-            or defaults if alert_type not found
-            
-        Raises:
-            ValueError: If alert_type is not a string
-        """
-        if not isinstance(alert_type, str):
-            raise ValueError(f"alert_type must be string, got {type(alert_type)}")
-        
-        # Return techniques for this alert type, or defaults if not found
-        return self.mitre_map["types"].get(alert_type, self.mitre_map["defaults"])
+	"""Load triage configuration (severity tables and boosts)."""
 
+	def __init__(self, config_path: str) -> None:
+		self._config_path = config_path
+		self._config = self._load()
 
-class SuppressionEngine:
-    """Evaluate suppression rules on enriched alerts."""
-    
-    def __init__(self, config_loader: TriageConfigLoader) -> None:
-        """
-        Initialize SuppressionEngine.
-        
-        Args:
-            config_loader: Loaded triage configuration
-        """
-        self.rules = config_loader.get_suppression_rules()
-    
-    def evaluate(self, summary: Dict[str, int]) -> Tuple[bool, Optional[str]]:
-        """
-        Evaluate suppression rules.
-        
-        Args:
-            summary: Enrichment summary with IOC counts
-            
-        Returns:
-            Tuple of (suppressed: bool, reason: Optional[str])
-        """
-        total_iocs = summary.get("total_iocs", 0)
-        whitelisted = summary.get("whitelisted", 0)
-        clean = summary.get("clean", 0)
-        
-        # Evaluate each rule in order
-        for rule in self.rules:
-            condition = rule["condition"]
-            
-            # Parse and evaluate condition
-            if self._evaluate_condition(condition, summary):
-                return True, rule["reason"]
-        
-        return False, None
-    
-    def _evaluate_condition(self, condition: str, summary: Dict[str, int]) -> bool:
-        """
-        Evaluate a suppression condition.
-        
-        Args:
-            condition: Condition string (e.g., "whitelisted == total_iocs")
-            summary: Enrichment summary
-            
-        Returns:
-            True if condition matches
-        """
-        # Extract values from summary
-        total_iocs = summary.get("total_iocs", 0)
-        malicious = summary.get("malicious", 0)
-        suspicious = summary.get("suspicious", 0)
-        clean = summary.get("clean", 0)
-        whitelisted = summary.get("whitelisted", 0)
-        unknown = summary.get("unknown", 0)
-        
-        # Safe evaluation with limited scope
-        try:
-            # Create safe evaluation context
-            context = {
-                "total_iocs": total_iocs,
-                "malicious": malicious,
-                "suspicious": suspicious,
-                "clean": clean,
-                "whitelisted": whitelisted,
-                "unknown": unknown
-            }
-            
-            # Evaluate condition
-            return eval(condition, {"__builtins__": {}}, context)
-        except Exception:
-            # If evaluation fails, don't suppress
-            return False
+	def _load(self) -> Dict[str, Any]:
+		if not os.path.isfile(self._config_path):
+			raise FileNotFoundError(f"Triage config not found: {self._config_path}")
+		with open(self._config_path, "r", encoding="utf-8") as f:
+			return yaml.safe_load(f) or {}
+
+	@property
+	def severity_base(self) -> Dict[str, int]:
+		return (self._config.get("severity", {}) or {}).get("base", {})
+
+	@property
+	def intel_boosts(self) -> Dict[str, int]:
+		return (self._config.get("severity", {}) or {}).get("intel_boosts", {})
+
+	@property
+	def suppression_config(self) -> Dict[str, Any]:
+		return self._config.get("suppression", {}) or {}
+
+	def get_allowlist_path(self) -> str:
+		"""Get absolute path to allowlist file."""
+		rel_path = self.suppression_config.get("allowlist_path", "")
+		if not rel_path:
+			return ""
+		config_dir = os.path.dirname(self._config_path)
+		return os.path.normpath(os.path.join(config_dir, rel_path))
+
+	def get_allowlist_penalty(self) -> int:
+		return int(self.suppression_config.get("allowlist_penalty", 25))
+
+	@property
+	def bucket_config(self) -> Dict[str, Any]:
+		return self._config.get("bucket", {}) or {}
+
+	@property
+	def mitre_config(self) -> Dict[str, Any]:
+		return self._config.get("mitre", {}) or {}
+
+	def get_mitre_mapping_path(self) -> str:
+		"""Get absolute path to MITRE mapping file."""
+		rel_path = self.mitre_config.get("mapping_path", "")
+		if not rel_path:
+			return ""
+		config_dir = os.path.dirname(self._config_path)
+		return os.path.normpath(os.path.join(config_dir, rel_path))
+
+	def get_bucket_for_score(self, severity_score: int) -> str:
+		"""
+		Classify severity score into bucket.
+		
+		Args:
+			severity_score: Score 0-100 (should be clamped)
+		
+		Returns:
+			Bucket name: "Suppressed", "Low", "Medium", "High", or "Critical"
+		"""
+		# Ensure score is within range (defensive)
+		score = max(0, min(100, int(severity_score)))
+		
+		bucket_ranges = self.bucket_config.get("ranges", [])
+		if not bucket_ranges:
+			# Fallback if config missing
+			if score == 0:
+				return "Suppressed"
+			elif score <= 39:
+				return "Low"
+			elif score <= 69:
+				return "Medium"
+			elif score <= 89:
+				return "High"
+			else:
+				return "Critical"
+		
+		# Use config-defined ranges
+		for bucket in bucket_ranges:
+			min_val = bucket.get("min", 0)
+			max_val = bucket.get("max", 100)
+			if min_val <= score <= max_val:
+				return bucket.get("name", "Unknown")
+		
+		return "Unknown"
 
 
 class SeverityScorer:
-    """Calculate deterministic severity scores."""
-    
-    def __init__(self, config_loader: TriageConfigLoader) -> None:
-        """
-        Initialize SeverityScorer.
-        
-        Args:
-            config_loader: Loaded triage configuration
-        """
-        self.weights = config_loader.get_severity_weights()
-        self.config_loader = config_loader
-    
-    def calculate(self, summary: Dict[str, int], alert_type: str) -> Dict[str, Any]:
-        """
-        Calculate severity score.
-        
-        Args:
-            summary: Enrichment summary with IOC counts
-            alert_type: Alert type for multiplier lookup
-            
-        Returns:
-            Dict with score and calculation details
-        """
-        # Calculate base score
-        base_score = (
-            summary.get("malicious", 0) * self.weights["malicious"] +
-            summary.get("suspicious", 0) * self.weights["suspicious"] +
-            summary.get("unknown", 0) * self.weights["unknown"] +
-            summary.get("clean", 0) * self.weights["clean"] +
-            summary.get("whitelisted", 0) * self.weights["whitelisted"]
-        )
-        
-        # Get alert type multiplier
-        multiplier = self.config_loader.get_alert_type_multiplier(alert_type)
-        
-        # Apply multiplier
-        adjusted_score = base_score * multiplier
-        
-        # Cap at maximum
-        max_score = self.config_loader.get_max_score()
-        final_score = min(int(adjusted_score), max_score)
-        
-        return {
-            "severity_score": final_score,
-            "scoring_details": {
-                "base_score": int(base_score),
-                "alert_type": alert_type,
-                "multiplier": multiplier,
-                "adjusted_score": int(adjusted_score),
-                "capped_at": max_score
-            }
-        }
+	"""Compute severity score from alert type and indicator verdicts."""
+
+	ALLOWED_VERDICTS = {"malicious", "suspicious", "clean", "unknown"}
+
+	def __init__(self, config_loader: TriageConfigLoader) -> None:
+		self._config = config_loader
+
+	def calculate(self, alert_type: str, indicators: List[Dict[str, Any]]) -> Dict[str, Any]:
+		base_table = self._config.severity_base
+		boosts = self._config.intel_boosts
+
+		base = base_table.get(alert_type, base_table.get("Unknown", 40))
+
+		malicious_boost = int(boosts.get("malicious", 0))
+		suspicious_boost = int(boosts.get("suspicious", 0))
+		extra_per = int(boosts.get("extra_flagged_per_ioc", 0))
+		extra_cap = int(boosts.get("extra_flagged_cap", 0))
+
+		flagged_count = 0
+		first_flag_boost = 0
+
+		for indicator in indicators:
+			risk = indicator.get("risk", {}) if isinstance(indicator, dict) else {}
+			verdict = risk.get("verdict") if isinstance(risk, dict) else None
+			if verdict not in self.ALLOWED_VERDICTS:
+				continue
+			if verdict in ("malicious", "suspicious"):
+				flagged_count += 1
+				if flagged_count == 1:
+					first_flag_boost = malicious_boost if verdict == "malicious" else suspicious_boost
+
+		extra_boost = 0
+		if flagged_count > 1:
+			extra_boost = min((flagged_count - 1) * extra_per, extra_cap)
+
+		severity_score = base + first_flag_boost + extra_boost
+		severity_score = max(0, min(100, int(severity_score)))
+
+		return {
+			"severity_score": severity_score,
+			"scoring_details": {
+				"base": base,
+				"flagged_iocs": flagged_count,
+				"first_flag_boost": first_flag_boost,
+				"extra_boost": extra_boost,
+			}
+		}
 
 
-class TagGenerator:
-    """Generate alert tags based on rules."""
-    
-    def __init__(self, config_loader: TriageConfigLoader) -> None:
-        """
-        Initialize TagGenerator.
-        
-        Args:
-            config_loader: Loaded triage configuration
-        """
-        self.config_loader = config_loader
-    
-    def generate(self, alert_type: str, summary: Dict[str, int]) -> List[str]:
-        """
-        Generate tags for alert.
-        
-        Args:
-            alert_type: Alert type
-            summary: Enrichment summary
-            
-        Returns:
-            List of tags
-        """
-        tags = []
-        
-        # Add alert type-based tags
-        type_tags = self.config_loader.get_alert_type_tags(alert_type)
-        tags.extend(type_tags)
-        
-        # Add threat distribution-based tags
-        distribution_rules = self.config_loader.get_threat_distribution_rules()
-        for rule in distribution_rules:
-            condition = rule.get("condition", "")
-            rule_tags = rule.get("tags", [])
-            
-            if self._evaluate_condition(condition, summary):
-                tags.extend(rule_tags)
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_tags = []
-        for tag in tags:
-            if tag not in seen:
-                seen.add(tag)
-                unique_tags.append(tag)
-        
-        return unique_tags
-    
-    def _evaluate_condition(self, condition: str, summary: Dict[str, int]) -> bool:
-        """
-        Evaluate a tag condition.
-        
-        Args:
-            condition: Condition string
-            summary: Enrichment summary
-            
-        Returns:
-            True if condition matches
-        """
-        # Extract values
-        malicious = summary.get("malicious", 0)
-        suspicious = summary.get("suspicious", 0)
-        clean = summary.get("clean", 0)
-        whitelisted = summary.get("whitelisted", 0)
-        unknown = summary.get("unknown", 0)
-        total_iocs = summary.get("total_iocs", 0)
-        
-        try:
-            context = {
-                "malicious": malicious,
-                "suspicious": suspicious,
-                "clean": clean,
-                "whitelisted": whitelisted,
-                "unknown": unknown,
-                "total_iocs": total_iocs
-            }
-            
-            return eval(condition, {"__builtins__": {}}, context)
-        except Exception:
-            return False
+class AllowlistLoader:
+	"""Load and parse allowlist YAML file for IOC matching."""
+
+	def __init__(self, allowlist_path: str) -> None:
+		self._allowlist_path = allowlist_path
+		self._allowlist = self._load()
+
+	def _load(self) -> Dict[str, Any]:
+		"""Load allowlist file, return empty dict if not found or malformed."""
+		if not self._allowlist_path or not os.path.isfile(self._allowlist_path):
+			return {}
+		try:
+			with open(self._allowlist_path, "r", encoding="utf-8") as f:
+				data = yaml.safe_load(f) or {}
+				return data.get("indicators", {}) or {}
+		except Exception:
+			return {}
+
+	def is_allowlisted(self, ioc_type: str, ioc_value: str) -> bool:
+		"""Check if an IOC (type, value) exists in allowlist."""
+		if not isinstance(self._allowlist, dict):
+			return False
+		allowlist_values = self._allowlist.get(ioc_type, [])
+		if not isinstance(allowlist_values, list):
+			return False
+		# Normalize for case-insensitive comparison
+		normalized_value = ioc_value.lower().strip()
+		normalized_allowlist = [str(v).lower().strip() for v in allowlist_values]
+		return normalized_value in normalized_allowlist
+
+
+class SuppressionEngine:
+	"""Apply allowlist suppression logic to indicators."""
+
+	def __init__(self, config_loader: TriageConfigLoader, allowlist_loader: AllowlistLoader) -> None:
+		self._config = config_loader
+		self._allowlist = allowlist_loader
+
+	def evaluate(self, indicators: List[Dict[str, Any]]) -> Dict[str, Any]:
+		"""
+		Check indicators against allowlist and return suppression result.
+		
+		Returns:
+			{
+				"allowlisted_count": int,
+				"total_count": int,
+				"is_fully_suppressed": bool,
+				"severity_penalty": int,
+				"tags": List[str]
+			}
+		"""
+		total_count = len(indicators)
+		allowlisted_count = 0
+
+		for indicator in indicators:
+			if not isinstance(indicator, dict):
+				continue
+			ioc_type = indicator.get("type", "")
+			ioc_value = indicator.get("value", "")
+			if not ioc_type or not ioc_value:
+				continue
+			if self._allowlist.is_allowlisted(ioc_type, ioc_value):
+				allowlisted_count += 1
+
+		is_fully_suppressed = (allowlisted_count > 0 and allowlisted_count == total_count)
+		penalty = self._config.get_allowlist_penalty()
+
+		tags = []
+		if allowlisted_count > 0:
+			tags.append("allowlisted")
+		if is_fully_suppressed:
+			tags.append("suppressed")
+
+		return {
+			"allowlisted_count": allowlisted_count,
+			"total_count": total_count,
+			"is_fully_suppressed": is_fully_suppressed,
+			"severity_penalty": penalty if allowlisted_count > 0 else 0,
+			"tags": tags
+		}
+
+
+class BucketClassifier:
+	"""Classify severity score into risk bucket."""
+
+	def __init__(self, config_loader: TriageConfigLoader) -> None:
+		self._config = config_loader
+
+	def classify(self, severity_score: int) -> str:
+		"""
+		Classify a severity score into a bucket.
+		
+		Args:
+			severity_score: Score 0-100
+		
+		Returns:
+			Bucket name: "Suppressed", "Low", "Medium", "High", or "Critical"
+		"""
+		return self._config.get_bucket_for_score(severity_score)
+
+
+class MitreMapper:
+	"""Map alert types to MITRE ATT&CK techniques."""
+
+	def __init__(self, config_loader: TriageConfigLoader) -> None:
+		self._config = config_loader
+		self._mapping = self._load_mapping()
+
+	def _load_mapping(self) -> Dict[str, Any]:
+		"""Load MITRE mapping from YAML file."""
+		mapping_path = self._config.get_mitre_mapping_path()
+		if not mapping_path or not os.path.isfile(mapping_path):
+			return {}
+		
+		try:
+			with open(mapping_path, "r", encoding="utf-8") as f:
+				data = yaml.safe_load(f) or {}
+				return data
+		except Exception:
+			# Graceful degradation: malformed YAML or read error
+			return {}
+
+	def get_techniques(self, alert_type: str) -> List[str]:
+		"""
+		Get MITRE ATT&CK techniques for an alert type.
+		
+		Args:
+			alert_type: Alert type string (e.g., "CredentialAccess")
+		
+		Returns:
+			List of technique codes (e.g., ["T1056", "T1555"])
+			Returns defaults if type not found or empty list if no defaults
+		"""
+		if not isinstance(alert_type, str) or not alert_type.strip():
+			return self._mapping.get("defaults", [])
+		
+		# Look up alert type in types section (case-sensitive)
+		types_map = self._mapping.get("types", {})
+		if alert_type in types_map:
+			techniques = types_map[alert_type]
+			if isinstance(techniques, list):
+				return techniques
+		
+		# Return defaults if not found
+		defaults = self._mapping.get("defaults", [])
+		return defaults if isinstance(defaults, list) else []
+

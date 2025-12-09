@@ -1,100 +1,44 @@
-# Triage Configuration
-# Deterministic rules for severity scoring, tagging, and suppression
-
+# Severity configuration
 severity:
-  # Base weights for IOC threat levels
-  weights:
-    malicious: 40      # Base points per malicious IOC
-    suspicious: 20     # Base points per suspicious IOC
-    unknown: 5         # Base points per unknown IOC
-    clean: 0           # No penalty for clean IOCs
-    whitelisted: 0     # No penalty for whitelisted IOCs
-  
-  # Alert type multipliers
-  multipliers:
-    alert_types:
-      CredentialAccess: 1.2
-      Malware: 1.3
-      Ransomware: 1.5
-      Phishing: 1.1
-      C2: 1.4
-      Beaconing: 1.2
-      default: 1.0     # Fallback for unknown alert types
-  
-  # Maximum severity score (cap)
-  max_score: 100
+  base:
+    Malware: 70
+    Phishing: 60
+    Beaconing: 65
+    CredentialAccess: 75
+    C2: 80
+    Unknown: 40
 
-# Tag generation rules
-tags:
-  # Alert type-based tags
-  by_alert_type:
-    CredentialAccess:
-      - credential-theft
-      - account-compromise
-    Malware:
-      - malware
-      - file-based-threat
-    Ransomware:
-      - ransomware
-      - data-encryption
-    Phishing:
-      - phishing
-      - social-engineering
-    C2:
-      - command-and-control
-      - network-threat
-    Beaconing:
-      - beaconing
-      - network-threat
-  
-  # Threat level distribution tags
-  by_threat_distribution:
-    - condition: "malicious >= 2"
-      tags:
-        - high-confidence
-        - multiple-threats
-    - condition: "malicious >= 1 and suspicious >= 1"
-      tags:
-        - mixed-threat-levels
-    - condition: "unknown >= 3"
-      tags:
-        - unknown-iocs
-        - requires-investigation
+  intel_boosts:
+    malicious: 20
+    suspicious: 10
+    extra_flagged_per_ioc: 5
+    extra_flagged_cap: 20
 
-# Suppression rules (evaluated in order)
+# Suppression configuration
 suppression:
-  rules:
-    - name: all_whitelisted
-      condition: "whitelisted == total_iocs and total_iocs > 0"
-      reason: "All indicators are whitelisted"
-    
-    - name: no_iocs
-      condition: "total_iocs == 0"
-      reason: "No indicators to evaluate"
-    
-    - name: all_clean
-      condition: "clean == total_iocs and total_iocs > 0"
-      reason: "All indicators are clean"
+  allowlist_path: "../configs/allowlists.yml"
+  allowlist_penalty: 25
 
-# Priority classification based on severity score
-prioritization:
-  critical:
-    min: 90
-    max: 100
-    sla_minutes: 0      # Immediate
-  high:
-    min: 70
-    max: 89
-    sla_minutes: 15
-  medium:
-    min: 40
-    max: 69
-    sla_minutes: 60
-  low:
-    min: 1
-    max: 39
-    sla_minutes: 240    # 4 hours
-  informational:
-    min: 0
-    max: 0
-    sla_minutes: null   # No SLA (suppressed)
+# Bucket configuration
+bucket:
+  ranges:
+    - name: "Suppressed"
+      min: 0
+      max: 0
+    - name: "Low"
+      min: 1
+      max: 39
+    - name: "Medium"
+      min: 40
+      max: 69
+    - name: "High"
+      min: 70
+      max: 89
+    - name: "Critical"
+      min: 90
+      max: 100
+
+# MITRE ATT&CK configuration
+mitre:
+  mapping_path: "../configs/mitre_map.yml"
+

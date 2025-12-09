@@ -42,7 +42,7 @@ def main():
     alert = enrich(alert)
 
     # Triage alert with deterministic rules
-    #alert = triage(alert)
+    alert = triage(alert)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)
