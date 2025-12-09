@@ -34,18 +34,17 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     alert = load_alert(path=args.input, use_sample=args.sample)
-
+   
     # Normalize alert prior to enrichment and triage
-    alert = normalize(alert, flatten=True)
-    
-    # Enrich alert with local mock TI
-    #alert = enrich(alert)
+    alert = normalize(alert)
+
+    # Enrich alert with local mock TI (multi-provider)
+    alert = enrich(alert)
 
     # Triage alert with deterministic rules
     #alert = triage(alert)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)
-
 if __name__ == "__main__":
     main()

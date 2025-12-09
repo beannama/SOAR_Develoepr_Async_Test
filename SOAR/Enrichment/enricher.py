@@ -1,15 +1,17 @@
 '''
 IOC Enrichment
 
-Purpose: Enrich observables with threat context.
+Purpose: Enrich observables with threat intelligence data.
 
 Responsibilities:
-- Match IOCs against mock_ti
-- Attach threat level, confidence, notes
-- Flag whitelisted indicators
+- Match IOCs against local TI data
+- Merge risk assessments from multiple providers
+- Provide verdict and confidence scores
+
 Design notes:
 - Stateless and idempotent
 - Easy to swap with real TI feeds
+- Multiple provider support with risk merging
 '''
 
 import os
@@ -53,102 +55,50 @@ def _validate_alert(alert: Dict[str, Any]) -> None:
 	if not isinstance(alert.get("type"), str) or not alert["type"].strip():
 		raise ValueError("alert['type'] must be a non-empty string")
 
-	# Validate indicators presence in either normalized list or legacy dict
-	has_norm_list = isinstance(alert.get("normalized_indicators"), list)
-	has_incident_list = isinstance(alert.get("incident", {}).get("indicators"), list)
-	has_dict = isinstance(alert.get("indicators"), dict)
+	# Validate indicators list presence
+	if not isinstance(alert.get("indicators"), list):
+		raise ValueError("alert must contain 'indicators' as a list")
 
-	if not (has_norm_list or has_incident_list or has_dict):
-		raise ValueError("alert must contain indicators (normalized list or indicators dict)")
-
-	# Validate normalized list if present
-	def _validate_list(indicators_list: List[Any]) -> None:
-		for item in indicators_list:
-			if not isinstance(item, dict):
-				raise ValueError("normalized indicators must be dict entries")
-			if "type" not in item or "value" not in item:
-				raise ValueError("each indicator must have 'type' and 'value'")
-			if not isinstance(item["type"], str) or not item["type"].strip():
-				raise ValueError("indicator 'type' must be a non-empty string")
-			if not isinstance(item["value"], str) or not item["value"].strip():
-				raise ValueError("indicator 'value' must be a non-empty string")
-
-	if has_norm_list:
-		_validate_list(alert["normalized_indicators"])
-	if has_incident_list:
-		_validate_list(alert["incident"]["indicators"])
-
-	if has_dict:
-		indicators = alert.get("indicators")
-		for ioc_type, values in indicators.items():
-			if not isinstance(values, list):
-				raise ValueError(f"alert['indicators'][{ioc_type!r}] must be a list")
-			for v in values:
-				if not isinstance(v, str):
-					raise ValueError(f"IOC values for {ioc_type!r} must be strings")
+	# Validate each indicator in the list
+	indicators_list = alert.get("indicators", [])
+	for item in indicators_list:
+		if not isinstance(item, dict):
+			raise ValueError("each indicator must be a dict")
+		if "type" not in item or "value" not in item:
+			raise ValueError("each indicator must have 'type' and 'value'")
+		if not isinstance(item["type"], str) or not item["type"].strip():
+			raise ValueError("indicator 'type' must be a non-empty string")
+		if not isinstance(item["value"], str) or not item["value"].strip():
+			raise ValueError("indicator 'value' must be a non-empty string")
 
 
-def _get_indicator_list(alert: Dict[str, Any]) -> List[Dict[str, str]]:
-	"""Extract indicators as a list of {type, value}, preferring normalized data."""
-	if isinstance(alert.get("normalized_indicators"), list):
-		return alert["normalized_indicators"]
-	if isinstance(alert.get("incident", {}).get("indicators"), list):
-		return alert["incident"]["indicators"]
-
-	# Fallback: legacy dict -> convert to list
-	indicators_dict = alert.get("indicators", {})
-	flattened: List[Dict[str, str]] = []
-	for ioc_type, values in indicators_dict.items():
-		if not isinstance(values, list):
-			continue
-		for value in values:
-			if isinstance(value, str):
-				flattened.append({"type": ioc_type, "value": value})
-	return flattened
+def _get_indicators_for_enrichment(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+	"""Get indicators from alert for enrichment (returns reference, not copy)."""
+	# Return reference to the indicators list for in-place modification
+	return alert.get("indicators", [])
 
 
 def enrich(alert: Dict[str, Any]) -> Dict[str, Any]:
-	"""Enrich an alert with TI data and MITRE mapping using mock_ti."""
+	"""Enrich an alert by adding risk data directly to indicators."""
 	_validate_alert(alert)
 	ti = _get_mock_ti()
 
-	indicators = _get_indicator_list(alert)
+	indicators = _get_indicators_for_enrichment(alert)
 
-	# Build IOC enrichment and summary
-	enrichment = {
-		"enriched_iocs": [],
-		"summary": {
-			"total_iocs": 0,
-			"malicious": 0,
-			"suspicious": 0,
-			"clean": 0,
-			"whitelisted": 0,
-			"unknown": 0,
-		},
-	}
-
+	# Enrich each indicator in-place by adding risk field
 	for indicator in indicators:
 		ioc_type = indicator.get("type")
 		ioc_value = indicator.get("value")
+		
+		# Skip malformed indicators
 		if not isinstance(ioc_type, str) or not isinstance(ioc_value, str):
 			continue
 
+		# Query TI and get risk data
 		ioc_result = ti.query_ioc(ioc_type, ioc_value)
-		enrichment["enriched_iocs"].append(ioc_result)
-		enrichment["summary"]["total_iocs"] += 1
+		
+		# Add risk field directly to indicator
+		indicator["risk"] = ioc_result["risk"]
 
-		if ioc_result["whitelisted"]:
-			enrichment["summary"]["whitelisted"] += 1
-		elif ioc_result["threat_level"] == "malicious":
-			enrichment["summary"]["malicious"] += 1
-		elif ioc_result["threat_level"] == "suspicious":
-			enrichment["summary"]["suspicious"] += 1
-		elif ioc_result["threat_level"] == "clean":
-			enrichment["summary"]["clean"] += 1
-		else:
-			enrichment["summary"]["unknown"] += 1
-
-	enriched_alert = alert.copy()
-	enriched_alert["enrichment"] = enrichment
-	return enriched_alert
+	return alert
 

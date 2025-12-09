@@ -6,7 +6,7 @@ Purpose: Offline enrichment source.
 Responsibilities:
 - Store known bad IPs, domains, hashes    
 - Maintain whitelist/suppression lists
-- Provide confidence and MITRE hints
+- Provide confidence
 
 Why important:
 - Demonstrates enrichment without external dependencies
@@ -24,7 +24,7 @@ class ConfigLoader:
     Load and validate YAML configuration files.
     
     Responsibilities:
-    - Load connectors.yml, allowlists.yml, mitre_map.yml
+    - Load connectors.yml
     - Validate YAML structure and schema
     - Provide safe access to configuration data
     - Handle missing/malformed configs gracefully
@@ -46,8 +46,6 @@ class ConfigLoader:
         
         self.config_dir = config_dir
         self.connectors: Dict[str, Any] = {}
-        self.allowlists: Dict[str, Any] = {}
-        self.mitre_map: Dict[str, Any] = {}
         
         # Load all configurations
         self._load_configs()
@@ -55,8 +53,6 @@ class ConfigLoader:
     def _load_configs(self) -> None:
         """Load all configuration files."""
         self.connectors = self.load_connectors()
-        self.allowlists = self.load_allowlists()
-        self.mitre_map = self.load_mitre_map()
     
     def _safe_load_yaml(self, filepath: str, filename: str) -> dict:
         """
@@ -123,314 +119,233 @@ class ConfigLoader:
         
         return data
     
-    def load_allowlists(self) -> Dict[str, Any]:
-        """
-        Load and validate allowlists.yml.
-        
-        Expected structure:
-        {
-            "indicators": {
-                "ipv4": [...],
-                "domains": [...],
-                "urls": [...],
-                "sha256": [...]
-            },
-            "assets": {
-                "device_ids": [...]
-            }
-        }
-        
-        Returns:
-            Parsed allowlists configuration
-            
-        Raises:
-            ValueError: If required keys are missing
-        """
-        filepath = os.path.join(self.config_dir, "allowlists.yml")
-        data = self._safe_load_yaml(filepath, "allowlists.yml")
-        
-        # Validate structure
-        if "indicators" not in data:
-            raise ValueError("allowlists.yml missing required key: 'indicators'")
-        
-        if not isinstance(data["indicators"], dict):
-            raise ValueError("allowlists.yml 'indicators' must be a dictionary")
-        
-        # Validate allowed IOC types
-        valid_ioc_types = {"ipv4", "domains", "urls", "sha256"}
-        for ioc_type in data["indicators"].keys():
-            if ioc_type not in valid_ioc_types:
-                raise ValueError(f"Invalid IOC type in allowlists: '{ioc_type}'. "
-                               f"Must be one of: {valid_ioc_types}")
-        
-        # Validate each IOC type is a list
-        for ioc_type, values in data["indicators"].items():
-            if not isinstance(values, list):
-                raise ValueError(f"Allowlist for '{ioc_type}' must be a list, got {type(values)}")
-            # Ensure all values are strings
-            if not all(isinstance(v, str) for v in values):
-                raise ValueError(f"Allowlist for '{ioc_type}' contains non-string values")
-        
-        return data
-    
-    def load_mitre_map(self) -> Dict[str, Any]:
-        """
-        Load and validate mitre_map.yml.
-        
-        Expected structure:
-        {
-            "types": {
-                "AlertType": ["T1234", "T5678"],
-                ...
-            },
-            "defaults": ["T9999", ...]
-        }
-        
-        Returns:
-            Parsed MITRE mapping configuration
-            
-        Raises:
-            ValueError: If required keys are missing
-        """
-        filepath = os.path.join(self.config_dir, "mitre_map.yml")
-        data = self._safe_load_yaml(filepath, "mitre_map.yml")
-        
-        # Validate structure
-        if "types" not in data:
-            raise ValueError("mitre_map.yml missing required key: 'types'")
-        if "defaults" not in data:
-            raise ValueError("mitre_map.yml missing required key: 'defaults'")
-        
-        if not isinstance(data["types"], dict):
-            raise ValueError("mitre_map.yml 'types' must be a dictionary")
-        if not isinstance(data["defaults"], list):
-            raise ValueError("mitre_map.yml 'defaults' must be a list")
-        
-        # Validate default techniques are strings
-        if not all(isinstance(t, str) for t in data["defaults"]):
-            raise ValueError("mitre_map.yml 'defaults' contains non-string values")
-        
-        # Validate each alert type maps to a list
-        for alert_type, techniques in data["types"].items():
-            if not isinstance(techniques, list):
-                raise ValueError(f"MITRE techniques for '{alert_type}' must be a list")
-            if not all(isinstance(t, str) for t in techniques):
-                raise ValueError(f"MITRE techniques for '{alert_type}' contains non-string values")
-        
-        return data
-    
     def get_providers(self) -> Dict[str, Dict[str, str]]:
         """Return the providers configuration."""
         return self.connectors.get("providers", {})
     
-    def get_allowlists(self) -> Dict[str, List[str]]:
-        """Return the indicators allowlist."""
-        return self.allowlists.get("indicators", {})
-    
-    def get_mitre_types(self) -> Dict[str, List[str]]:
-        """Return the MITRE types mapping."""
-        return self.mitre_map.get("types", {})
-    
-    def get_mitre_defaults(self) -> List[str]:
-        """Return the default MITRE techniques."""
-        return self.mitre_map.get("defaults", [])
 
 
-class AllowlistValidator:
+class RiskMerger:
     """
-    Validate if IOCs are whitelisted.
+    Merge TI results from multiple providers into unified risk assessment.
     
     Responsibilities:
-    - Check if IOC is in allowlist
-    - Normalize IOC values for comparison (lowercase domains, strip whitespace)
-    - Support multiple IOC types (ipv4, domains, urls, sha256)
+    - Normalize provider-specific fields (confidence/score/reputation)
+    - Determine consensus verdict (malicious/suspicious/clean/unknown)
+    - Calculate weighted risk score (0-100)
+    - Track which providers contributed
     """
     
-    def __init__(self, allowlist_data: Dict[str, List[str]]) -> None:
+    # Verdict priority for consensus (higher = more severe)
+    VERDICT_PRIORITY = {
+        "malicious": 4,
+        "suspicious": 3,
+        "clean": 2,
+        "unknown": 1
+    }
+    
+    def __init__(self) -> None:
+        """Initialize RiskMerger."""
+        pass
+    
+    def merge(self, ti_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Initialize AllowlistValidator with allowlist data.
+        Merge TI results from multiple providers into unified risk assessment.
         
         Args:
-            allowlist_data: Dict from ConfigLoader.get_allowlists()
-                           Expected: {"ipv4": [...], "domains": [...], ...}
-                           
+            ti_results: List of TI data dicts from different providers
+                       Each dict should have been loaded from a provider JSON file
+        
+        Returns:
+            {
+                "verdict": "malicious|suspicious|clean|unknown",
+                "score": 0-100,
+                "sources": ["defender_ti", "anomali", ...],
+                "provider_details": [
+                    {"provider": "defender_ti", "verdict": "malicious", "score": 92},
+                    ...
+                ]
+            }
+        
         Raises:
-            ValueError: If data structure is invalid
+            ValueError: If ti_results is not a list or is empty
         """
-        if not isinstance(allowlist_data, dict):
-            raise ValueError("allowlist_data must be a dictionary")
+        if not isinstance(ti_results, list):
+            raise ValueError("ti_results must be a list")
         
-        # Normalize all allowlist entries (lowercase and strip)
-        self.allowlists: Dict[str, List[str]] = {}
+        if not ti_results:
+            # No providers found - return unknown
+            return {
+                "verdict": "unknown",
+                "score": 0,
+                "sources": [],
+                "provider_details": []
+            }
         
-        for ioc_type, values in allowlist_data.items():
-            if not isinstance(values, list):
-                raise ValueError(f"Allowlist for '{ioc_type}' must be a list")
+        provider_details: List[Dict[str, Any]] = []
+        sources: List[str] = []
+        max_score = 0
+        consensus_verdict = "unknown"
+        
+        for ti_data in ti_results:
+            if not isinstance(ti_data, dict):
+                continue
             
-            # Normalize each value based on IOC type
-            normalized_values = [self._normalize_value(ioc_type, v) for v in values]
-            self.allowlists[ioc_type] = normalized_values
+            # Normalize provider data
+            normalized = self._normalize_provider_data(ti_data)
+            
+            provider_name = normalized["provider"]
+            verdict = normalized["verdict"]
+            score = normalized["score"]
+            
+            # Track provider details
+            provider_details.append({
+                "provider": provider_name,
+                "verdict": verdict,
+                "score": score
+            })
+            
+            sources.append(provider_name)
+            
+            # Update max score
+            if score > max_score:
+                max_score = score
+            
+            # Update consensus verdict (most severe wins)
+            if self.VERDICT_PRIORITY.get(verdict, 0) > self.VERDICT_PRIORITY.get(consensus_verdict, 0):
+                consensus_verdict = verdict
+        
+        return {
+            "verdict": consensus_verdict,
+            "score": max_score,
+            "sources": sources,
+            "provider_details": provider_details
+        }
     
-    def _normalize_value(self, ioc_type: str, value: str) -> str:
+    def _normalize_provider_data(self, ti_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Normalize IOC value based on type.
+        Normalize provider-specific fields to standard format.
         
         Args:
-            ioc_type: Type of IOC (ipv4, domains, urls, sha256)
-            value: IOC value to normalize
-            
+            ti_data: Raw TI data from provider JSON file
+        
         Returns:
-            Normalized value
-            
+            {
+                "provider": str,
+                "verdict": "malicious|suspicious|clean|unknown",
+                "score": 0-100
+            }
+        
         Raises:
-            ValueError: If value is not a string
+            ValueError: If required fields are missing
         """
-        if not isinstance(value, str):
-            raise ValueError(f"IOC value must be string, got {type(value)}")
+        if not isinstance(ti_data, dict):
+            raise ValueError("ti_data must be a dictionary")
         
-        value = value.strip()
+        # Extract provider name
+        provider = ti_data.get("provider", "unknown")
+        if not isinstance(provider, str):
+            provider = "unknown"
         
-        # Normalize based on IOC type
-        if ioc_type == "domains":
-            # Domains are case-insensitive, convert to lowercase
-            return value.lower()
-        elif ioc_type == "urls":
-            # URLs are case-insensitive for domain part, lowercase full URL for comparison
-            return value.lower()
-        elif ioc_type == "ipv4":
-            # IPs are already case-insensitive, just strip
-            return value
-        elif ioc_type == "sha256":
-            # Hashes are case-insensitive, convert to lowercase
-            return value.lower()
-        else:
-            # Unknown type, return as-is after strip
-            return value
+        # Normalize verdict from various field names
+        verdict = self._extract_verdict(ti_data)
+        
+        # Normalize score from various field names
+        score = self._extract_score(ti_data)
+        
+        return {
+            "provider": provider,
+            "verdict": verdict,
+            "score": score
+        }
     
-    def is_whitelisted(self, ioc_type: str, ioc_value: str) -> bool:
+    def _extract_verdict(self, ti_data: Dict[str, Any]) -> str:
         """
-        Check if an IOC is whitelisted.
+        Extract and normalize verdict from provider data.
+        
+        Provider field mappings:
+        - Anomali: "risk" field
+        - Defender TI: "reputation" field
+        - ReversingLabs: "classification" field
         
         Args:
-            ioc_type: Type of IOC (ipv4, domains, urls, sha256)
-            ioc_value: IOC value to check
-            
-        Returns:
-            True if whitelisted, False otherwise
-            
-        Raises:
-            ValueError: If inputs are invalid
-        """
-        # Validate inputs
-        if not isinstance(ioc_type, str):
-            raise ValueError(f"ioc_type must be string, got {type(ioc_type)}")
-        if not isinstance(ioc_value, str):
-            raise ValueError(f"ioc_value must be string, got {type(ioc_value)}")
-        
-        # Check if IOC type is known
-        if ioc_type not in self.allowlists:
-            # Unknown IOC type - not whitelisted (erring on side of caution)
-            return False
-        
-        # Normalize the input value
-        normalized_value = self._normalize_value(ioc_type, ioc_value)
-        
-        # Check if normalized value is in allowlist
-        return normalized_value in self.allowlists[ioc_type]
-    
-    def get_whitelisted_count(self) -> Dict[str, int]:
-        """
-        Get count of whitelisted IOCs by type.
+            ti_data: Raw TI data
         
         Returns:
-            Dict mapping IOC type to count of whitelisted entries
+            Normalized verdict: "malicious", "suspicious", "clean", or "unknown"
         """
-        return {ioc_type: len(values) for ioc_type, values in self.allowlists.items()}
-
-
-class MitreMapper:
-    """
-    Map alert types to MITRE ATT&CK techniques.
+        # Check common verdict field names
+        verdict_fields = ["risk", "reputation", "classification", "verdict", "threat_level"]
+        
+        for field in verdict_fields:
+            if field in ti_data:
+                raw_verdict = ti_data[field]
+                if isinstance(raw_verdict, str):
+                    raw_verdict_lower = raw_verdict.lower().strip()
+                    
+                    # Map to standard verdicts
+                    if raw_verdict_lower in ["malicious", "malware", "threat", "bad"]:
+                        return "malicious"
+                    elif raw_verdict_lower in ["suspicious", "medium", "moderate"]:
+                        return "suspicious"
+                    elif raw_verdict_lower in ["clean", "benign", "safe", "good"]:
+                        return "clean"
+        
+        # Fallback: infer from score if available
+        score = self._extract_score(ti_data)
+        if score >= 80:
+            return "malicious"
+        elif score >= 50:
+            return "suspicious"
+        elif score > 0:
+            return "clean"
+        
+        return "unknown"
     
-    Responsibilities:
-    - Map alert types to MITRE T-codes
-    - Handle missing alert types with fallback to defaults
-    - Validate MITRE mapping data
-    """
-    
-    def __init__(self, mitre_types: Dict[str, List[str]], 
-                 mitre_defaults: List[str]) -> None:
+    def _extract_score(self, ti_data: Dict[str, Any]) -> int:
         """
-        Initialize MitreMapper with MITRE mapping data.
+        Extract and normalize score from provider data.
+        
+        Provider field mappings:
+        - Anomali: "confidence" field
+        - Defender TI: "score" field
+        - ReversingLabs: "score" field
         
         Args:
-            mitre_types: Dict mapping alert types to T-codes
-                        (from ConfigLoader.get_mitre_types())
-            mitre_defaults: List of default T-codes if alert type not found
-                           (from ConfigLoader.get_mitre_defaults())
-                           
-        Raises:
-            ValueError: If data structure is invalid
-        """
-        if not isinstance(mitre_types, dict):
-            raise ValueError("mitre_types must be a dictionary")
-        if not isinstance(mitre_defaults, list):
-            raise ValueError("mitre_defaults must be a list")
-        
-        # Validate all values are lists of strings
-        for alert_type, techniques in mitre_types.items():
-            if not isinstance(techniques, list):
-                raise ValueError(f"Techniques for '{alert_type}' must be a list")
-            if not all(isinstance(t, str) for t in techniques):
-                raise ValueError(f"Techniques for '{alert_type}' contains non-string values")
-        
-        # Validate defaults are strings
-        if not all(isinstance(t, str) for t in mitre_defaults):
-            raise ValueError("mitre_defaults contains non-string values")
-        
-        if not mitre_defaults:
-            raise ValueError("mitre_defaults cannot be empty")
-        
-        self.mitre_types = mitre_types
-        self.mitre_defaults = mitre_defaults
-    
-    def get_techniques(self, alert_type: str) -> List[str]:
-        """
-        Get MITRE techniques for an alert type.
-        
-        Args:
-            alert_type: Alert type from alert.type field
-            
-        Returns:
-            List of MITRE T-codes for this alert type,
-            or defaults if alert_type not found
-            
-        Raises:
-            ValueError: If alert_type is not a string
-        """
-        if not isinstance(alert_type, str):
-            raise ValueError(f"alert_type must be string, got {type(alert_type)}")
-        
-        # Return techniques for this alert type, or defaults if not found
-        return self.mitre_types.get(alert_type, self.mitre_defaults)
-    
-    def get_all_alert_types(self) -> List[str]:
-        """
-        Get list of all known alert types in mapping.
+            ti_data: Raw TI data
         
         Returns:
-            List of alert types
+            Normalized score (0-100)
         """
-        return list(self.mitre_types.keys())
-    
-    def get_default_techniques(self) -> List[str]:
-        """
-        Get default fallback MITRE techniques.
+        # Check common score field names
+        score_fields = ["score", "confidence", "risk_score", "threat_score"]
         
-        Returns:
-            List of default T-codes
-        """
-        return self.mitre_defaults.copy()
+        for field in score_fields:
+            if field in ti_data:
+                raw_score = ti_data[field]
+                
+                # Convert to integer if possible
+                try:
+                    if isinstance(raw_score, (int, float)):
+                        score = int(raw_score)
+                        # Ensure 0-100 range
+                        return max(0, min(100, score))
+                    elif isinstance(raw_score, str):
+                        score = int(float(raw_score))
+                        return max(0, min(100, score))
+                except (ValueError, TypeError):
+                    continue
+        
+        # No score found - return default based on verdict
+        verdict = self._extract_verdict(ti_data)
+        if verdict == "malicious":
+            return 90
+        elif verdict == "suspicious":
+            return 60
+        elif verdict == "clean":
+            return 10
+        
+        return 0
 
 
 class MockTIIndex:
@@ -641,6 +556,49 @@ class MockTIIndex:
         
         return None
     
+    def query_all_providers(self, ioc_type: str, ioc_value: str) -> List[Dict[str, Any]]:
+        """
+        Query TI data from ALL providers for an IOC.
+        
+        Args:
+            ioc_type: Type of IOC (ipv4, domains, urls, sha256)
+            ioc_value: IOC value to query
+            
+        Returns:
+            List of TI data dicts from all providers (empty list if none found)
+            
+        Raises:
+            ValueError: If inputs are invalid
+        """
+        if not isinstance(ioc_type, str) or not isinstance(ioc_value, str):
+            raise ValueError("ioc_type and ioc_value must be strings")
+        
+        ioc_value = ioc_value.strip()
+        
+        # Check if IOC type exists in index
+        if ioc_type not in self.index:
+            return []
+        
+        # Check if specific IOC value exists
+        if ioc_value not in self.index[ioc_type]:
+            return []
+        
+        # Get list of providers with data for this IOC
+        provider_files = self.index[ioc_type][ioc_value]
+        
+        # Load data from ALL providers
+        ti_results: List[Dict[str, Any]] = []
+        for provider, filepath in provider_files:
+            ti_data = self._load_ioc_file(filepath)
+            if ti_data:
+                # Add metadata about provider
+                ti_data['provider'] = provider
+                ti_data['ioc_type'] = ioc_type
+                ti_data['ioc_value'] = ioc_value
+                ti_results.append(ti_data)
+        
+        return ti_results
+    
     def _load_ioc_file(self, filepath: str) -> Optional[Dict[str, Any]]:
         """
         Load and parse TI JSON file (with caching).
@@ -714,7 +672,7 @@ class MockTI:
     - Load all configurations
     - Orchestrate queries across validators, mappers, and index
     - Provide normalized enrichment responses
-    - Handle whitelisting, MITRE mapping, and TI lookups
+    - Handle TI lookups
     """
     
     def __init__(self, config_dir: str, ti_dir: str) -> None:
@@ -732,25 +690,21 @@ class MockTI:
         # Load configurations
         self.config_loader = ConfigLoader(config_dir)
         
-        # Initialize validators and mappers
-        self.allowlist = AllowlistValidator(self.config_loader.get_allowlists())
-        self.mitre = MitreMapper(
-            self.config_loader.get_mitre_types(),
-            self.config_loader.get_mitre_defaults()
-        )
-        
-        # Initialize TI index
+        # Initialize TI index and risk merger
         self.ti_index = MockTIIndex(ti_dir)
+        self.risk_merger = RiskMerger()
     
     def query_ioc(self, ioc_type: str, ioc_value: str) -> Dict[str, Any]:
         """
-        Query an IOC and return enriched TI data.
+        Query an IOC and return enriched TI data from multiple providers.
         
         Workflow:
         1. Validate inputs
-        2. Check if whitelisted
-        3. Query TI index
+        2. Query all providers from TI index
+        3. Merge risk assessments using RiskMerger
         4. Return normalized response
+
+        This stage focuses solely on threat intelligence enrichment.
         
         Args:
             ioc_type: Type of IOC (ipv4, domains, urls, sha256)
@@ -761,13 +715,14 @@ class MockTI:
             {
                 "ioc_type": str,
                 "ioc_value": str,
-                "whitelisted": bool,
                 "found": bool,
-                "threat_level": str,  # "malicious", "suspicious", "clean", "unknown"
-                "provider": str or None,
-                "confidence": float or None,
-                "source": str,  # "whitelist", "ti_data", "not_found"
-                "raw_ti": dict or None  # Raw TI data from provider
+                "source": str,  # "ti_data" or "not_found"
+                "risk": {  # Merged risk from all providers
+                    "verdict": "malicious|suspicious|clean|unknown",
+                    "score": 0-100,
+                    "sources": ["defender_ti", "anomali", ...],
+                    "provider_details": [...]
+                }
             }
             
         Raises:
@@ -786,77 +741,30 @@ class MockTI:
         response: Dict[str, Any] = {
             "ioc_type": ioc_type,
             "ioc_value": ioc_value,
-            "whitelisted": False,
             "found": False,
-            "threat_level": "unknown",
-            "provider": None,
-            "confidence": None,
             "source": None,
-            "raw_ti": None
+            "risk": {
+                "verdict": "unknown",
+                "score": 0,
+                "sources": [],
+                "provider_details": []
+            }
         }
         
-        # Check if whitelisted
-        if self.allowlist.is_whitelisted(ioc_type, ioc_value):
-            response["whitelisted"] = True
-            response["threat_level"] = "clean"
-            response["source"] = "whitelist"
-            return response
+        # Query ALL providers from TI index
+        ti_results = self.ti_index.query_all_providers(ioc_type, ioc_value)
         
-        # Query TI index
-        ti_data = self.ti_index.query(ioc_type, ioc_value)
-        
-        if ti_data:
+        if ti_results:
             response["found"] = True
             response["source"] = "ti_data"
-            response["raw_ti"] = ti_data
-            response["provider"] = ti_data.get("provider")
             
-            # Determine threat level based on TI data
-            response["threat_level"] = self._determine_threat_level(ti_data)
-            
-            # Extract confidence if available
-            if "confidence" in ti_data:
-                response["confidence"] = ti_data["confidence"]
-            elif "score" in ti_data:
-                response["confidence"] = ti_data["score"]
+            # Merge risk assessments from all providers
+            merged_risk = self.risk_merger.merge(ti_results)
+            response["risk"] = merged_risk
         else:
             response["source"] = "not_found"
         
         return response
-    
-    def _determine_threat_level(self, ti_data: Dict[str, Any]) -> str:
-        """
-        Determine threat level from TI data.
-        
-        Args:
-            ti_data: TI data dict from query
-            
-        Returns:
-            Threat level: "malicious", "suspicious", "clean", "unknown"
-        """
-        # Check for explicit reputation/classification
-        reputation = ti_data.get("reputation", "").lower()
-        classification = ti_data.get("classification", "").lower()
-        risk = ti_data.get("risk", "").lower()
-        
-        if reputation == "malicious" or classification == "malicious":
-            return "malicious"
-        if reputation == "suspicious" or risk == "suspicious":
-            return "suspicious"
-        
-        # Check confidence/score thresholds
-        confidence = ti_data.get("confidence", 0)
-        score = ti_data.get("score", 0)
-        
-        # Treat as confidence score (0-100)
-        max_score = max(confidence, score)
-        
-        if max_score >= 80:
-            return "malicious"
-        elif max_score >= 50:
-            return "suspicious"
-        
-        return "clean"
 
     
     
