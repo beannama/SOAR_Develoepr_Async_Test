@@ -26,7 +26,7 @@ def print_section(title):
 def main():
     # Initialize - paths relative to workspace root (parent of Tests/)
     workspace_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    config_dir = os.path.join(workspace_root, 'SOAR', 'Enrichment', 'configs')
+    config_dir = os.path.join(workspace_root, 'SOAR', 'configs')
     ti_dir = os.path.join(workspace_root, 'SOAR', 'Enrichment', 'mocks', 'it')
     
     try:

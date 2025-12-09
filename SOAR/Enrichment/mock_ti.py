@@ -35,7 +35,7 @@ class ConfigLoader:
         Initialize ConfigLoader with path to configs directory.
         
         Args:
-            config_dir: Path to SOAR/Enrichment/configs directory
+            config_dir: Path to SOAR/configs directory
             
         Raises:
             FileNotFoundError: If config_dir does not exist
@@ -722,7 +722,7 @@ class MockTI:
         Initialize MockTI with configuration and TI data directories.
         
         Args:
-            config_dir: Path to SOAR/Enrichment/configs directory
+            config_dir: Path to SOAR/configs directory
             ti_dir: Path to SOAR/Enrichment/mocks/it directory
             
         Raises:
