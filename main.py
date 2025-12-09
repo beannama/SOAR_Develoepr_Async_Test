@@ -25,6 +25,7 @@ def parse_args():
 
 
 from SOAR.Ingest.loader import load_alert
+from SOAR.Normalize.normalize import normalize
 from SOAR.Enrichment.enricher import enrich
 from SOAR.Triage.triage import triage
 
@@ -34,11 +35,14 @@ def main():
 
     alert = load_alert(path=args.input, use_sample=args.sample)
 
-    # Enrich alert with local mock TI and MITRE mapping
-    alert = enrich(alert)
+    # Normalize alert prior to enrichment and triage
+    alert = normalize(alert, flatten=True)
+    
+    # Enrich alert with local mock TI
+    #alert = enrich(alert)
 
     # Triage alert with deterministic rules
-    alert = triage(alert)
+    #alert = triage(alert)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)
