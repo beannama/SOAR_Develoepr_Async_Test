@@ -22,10 +22,11 @@ __all__ = ["enrich"]
 
 def _build_paths() -> Dict[str, str]:
 	"""Resolve config and TI directories relative to this module."""
-	base_dir = os.path.dirname(__file__)
+	enrichment_dir = os.path.dirname(__file__)
+	soar_root = os.path.dirname(enrichment_dir)
 	return {
-		"config_dir": os.path.join(base_dir, "configs"),
-		"ti_dir": os.path.join(base_dir, "mocks", "it"),
+		"config_dir": os.path.join(soar_root, "configs"),
+		"ti_dir": os.path.join(enrichment_dir, "mocks", "it"),
 	}
 
 
