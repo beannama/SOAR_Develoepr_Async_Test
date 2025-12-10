@@ -1,0 +1,68 @@
+# Incident Report: {{ incident.id }}
+
+**Generated:** {{ summary_generated_at }}
+
+---
+
+## 📋 Incident Overview
+
+- **Incident ID:** `{{ incident.id }}`
+- **Created:** {{ incident.created_at }}
+- **Source:** {{ incident.source }}
+- **Alert Type:** {{ incident.type }}
+{% if asset.device_id -%}
+- **Affected Asset:** {{ asset.device_id }}{% if asset.hostname %} ({{ asset.hostname }}{% if asset.ip %} - {{ asset.ip }}{% endif %}){% endif %}
+{% endif %}
+
+---
+
+## 🔍 Indicators of Compromise
+
+{% if indicators %}
+| Type | Value | Verdict | Risk Score | Allowlisted |
+|------|-------|---------|------------|-------------|
+{% for indicator in indicators -%}
+| {{ indicator.type }} | `{{ indicator.value }}` | {{ indicator.verdict | default('unknown') }} | {{ indicator.score | default(0) }} | {{ '✓' if indicator.allowlisted else '✗' }} |
+{% endfor %}
+{% else %}
+*No indicators found.*
+{% endif %}
+
+---
+
+## ⚠️ Severity Assessment
+
+- **Severity Score:** {{ severity.score }}/100
+- **Classification:** **{{ severity.bucket }}**
+- **Suppressed:** {{ 'Yes' if severity.suppressed else 'No' }}
+{% if severity.tags -%}
+- **Tags:** {{ severity.tags | join(', ') }}
+{% endif %}
+
+---
+
+## 🎯 MITRE ATT&CK Techniques
+
+{% if mitre.techniques %}
+{% for technique in mitre.techniques -%}
+- [{{ technique }}](https://attack.mitre.org/techniques/{{ technique }})
+{% endfor %}
+{% else %}
+*No MITRE techniques mapped.*
+{% endif %}
+
+---
+
+## 🛡️ Actions Taken
+
+{% if actions %}
+{% for action in actions -%}
+- **{{ action.ts }}** - {{ action.type | upper }}: {{ action.target }} → {{ action.result }}
+{% endfor %}
+{% else %}
+*No automated response actions executed.*
+{% endif %}
+
+---
+
+**End of Report**

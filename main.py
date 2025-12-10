@@ -30,11 +30,13 @@ from SOAR.Enrichment.enricher import enrich
 from SOAR.Triage.triage import triage
 from SOAR.Response.response import respond
 from SOAR.Reporting.incident_exporter import export_incident
+from SOAR.Reporting.summary_renderer import render_summary
 
 def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     os.makedirs(os.path.join(args.outdir, "incidents"), exist_ok=True)
+    os.makedirs(os.path.join(args.outdir, "summaries"), exist_ok=True)
 
     alert = load_alert(path=args.input, use_sample=args.sample)
    
@@ -52,6 +54,9 @@ def main():
 
     # Export incident to JSON
     export_incident(alert, args.outdir)
+
+    # Generate Markdown summary
+    render_summary(alert, args.outdir)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)
