@@ -163,6 +163,10 @@ def normalize(alert: Dict[str, Any]) -> Dict[str, Any]:
 	normalized_alert["incident_id"] = incident_id
 	normalized_alert["source_alert"] = copy.deepcopy(alert)
 	normalized_alert["indicators"] = flattened_indicators
+
+	# Ensure timeline array exists for downstream stages
+	if not isinstance(normalized_alert.get("timeline"), list):
+		normalized_alert["timeline"] = []
 	
 	# Initialize actions array for response stage
 	normalized_alert["actions"] = []

@@ -128,6 +128,13 @@ class SummaryDataTransformer:
 				})
 		
 		return result
+
+	def transform_timeline(self) -> List[Dict[str, str]]:
+		"""Extract timeline entries."""
+		timeline = self._data.get("timeline", [])
+		if not isinstance(timeline, list):
+			return []
+		return timeline
 	
 	def transform(self) -> Dict[str, Any]:
 		"""
@@ -142,6 +149,7 @@ class SummaryDataTransformer:
 			"severity": self.transform_severity_section(),
 			"mitre": self.transform_mitre_techniques(),
 			"actions": self.transform_actions_section(),
+			"timeline": self.transform_timeline(),
 			"summary_generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 		}
 

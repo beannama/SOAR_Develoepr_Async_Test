@@ -21,6 +21,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from SOAR.Triage.rules import TriageConfigLoader, AllowlistLoader
+from SOAR.Timeline.timeline_manager import TIMELINE_STAGES
 
 __all__ = ["export_incident"]
 
@@ -37,7 +38,7 @@ class IncidentDataExtractor:
 			raise ValueError("alert must be a dictionary")
 		
 		# Required top-level fields
-		required_fields = ["incident_id", "indicators", "triage", "mitre", "actions"]
+		required_fields = ["incident_id", "indicators", "triage", "mitre", "actions", "timeline"]
 		for field in required_fields:
 			if field not in alert:
 				raise ValueError(f"alert missing required field: '{field}'")
@@ -66,6 +67,23 @@ class IncidentDataExtractor:
 		# Validate actions is a list
 		if not isinstance(alert.get("actions"), list):
 			raise ValueError("actions must be a list")
+
+		# Validate timeline is a list of entries
+		timeline = alert.get("timeline")
+		if not isinstance(timeline, list):
+			raise ValueError("timeline must be a list")
+		for entry in timeline:
+			if not isinstance(entry, dict):
+				raise ValueError("timeline entries must be dictionaries")
+			stage = entry.get("stage")
+			ts = entry.get("ts")
+			details = entry.get("details")
+			if stage not in TIMELINE_STAGES:
+				raise ValueError("timeline entry stage invalid")
+			if not isinstance(ts, str) or not ts.strip():
+				raise ValueError("timeline entry ts must be a non-empty string")
+			if not isinstance(details, str) or not details.strip():
+				raise ValueError("timeline entry details must be a non-empty string")
 	
 	def extract_core_fields(self, alert: Dict[str, Any]) -> Dict[str, Any]:
 		"""Extract incident_id and source_alert."""
@@ -188,6 +206,11 @@ class IncidentDataExtractor:
 				})
 		
 		return result
+
+	def extract_timeline(self, alert: Dict[str, Any]) -> List[Dict[str, str]]:
+		"""Extract timeline entries."""
+		timeline = alert.get("timeline", [])
+		return timeline if isinstance(timeline, list) else []
 	
 	def extract(self, alert: Dict[str, Any]) -> Dict[str, Any]:
 		"""Extract all incident data with validation."""
@@ -199,6 +222,7 @@ class IncidentDataExtractor:
 		triage = self.extract_triage_data(alert)
 		mitre = self.extract_mitre(alert)
 		actions = self.extract_actions(alert)
+		timeline = self.extract_timeline(alert)
 		
 		return {
 			"incident_id": core["incident_id"],
@@ -207,7 +231,8 @@ class IncidentDataExtractor:
 			"indicators": indicators,
 			"triage": triage,
 			"mitre": mitre,
-			"actions": actions
+			"actions": actions,
+			"timeline": timeline
 		}
 
 
@@ -219,7 +244,7 @@ class IncidentJSONBuilder:
 	
 	def _validate_schema(self) -> None:
 		"""Validate that all required fields are present and properly typed."""
-		required_keys = ["incident_id", "source_alert", "asset", "indicators", "triage", "mitre", "actions"]
+		required_keys = ["incident_id", "source_alert", "asset", "indicators", "triage", "mitre", "actions", "timeline"]
 		for key in required_keys:
 			if key not in self._data:
 				raise ValueError(f"Missing required key in extracted data: {key}")
@@ -239,6 +264,8 @@ class IncidentJSONBuilder:
 			raise ValueError("mitre must be a dict")
 		if not isinstance(self._data["actions"], list):
 			raise ValueError("actions must be a list")
+		if not isinstance(self._data.get("timeline"), list):
+			raise ValueError("timeline must be a list")
 		
 		# Validate triage required fields
 		triage = self._data["triage"]
@@ -259,7 +286,8 @@ class IncidentJSONBuilder:
 			"indicators": self._data["indicators"],
 			"triage": self._data["triage"],
 			"mitre": self._data["mitre"],
-			"actions": self._data["actions"]
+			"actions": self._data["actions"],
+			"timeline": self._data.get("timeline", [])
 		}
 
 

@@ -31,6 +31,7 @@ from SOAR.Triage.triage import triage
 from SOAR.Response.response import respond
 from SOAR.Reporting.incident_exporter import export_incident
 from SOAR.Reporting.summary_renderer import render_summary
+from SOAR.Timeline.timeline_manager import TimelineManager
 
 def main():
     args = parse_args()
@@ -38,19 +39,32 @@ def main():
     os.makedirs(os.path.join(args.outdir, "incidents"), exist_ok=True)
     os.makedirs(os.path.join(args.outdir, "summaries"), exist_ok=True)
 
+    timeline = TimelineManager()
+
     alert = load_alert(path=args.input, use_sample=args.sample)
+    alert = timeline.initialize(alert)
+    alert = timeline.add_entry(alert, "ingest", "Alert loaded")
    
     # Normalize alert prior to enrichment and triage
     alert = normalize(alert)
+    alert = timeline.add_entry(alert, "ingest", f"Incident created: {alert.get('incident_id', '')}")
 
     # Enrich alert with local mock TI (multi-provider)
     alert = enrich(alert)
+    indicator_count = len(alert.get("indicators", [])) if isinstance(alert.get("indicators"), list) else 0
+    alert = timeline.add_entry(alert, "enrich", f"Enriched indicators: {indicator_count}")
 
     # Triage alert with deterministic rules
     alert = triage(alert)
+    triage_data = alert.get("triage", {}) if isinstance(alert.get("triage"), dict) else {}
+    severity = triage_data.get("severity_score", triage_data.get("severity", 0))
+    bucket = triage_data.get("bucket", "Unknown")
+    alert = timeline.add_entry(alert, "triage", f"Severity {severity}, Bucket {bucket}")
 
     # Execute response actions
     alert = respond(alert)
+    action_count = len(alert.get("actions", [])) if isinstance(alert.get("actions"), list) else 0
+    alert = timeline.add_entry(alert, "respond", f"Actions executed: {action_count}")
 
     # Export incident to JSON
     export_incident(alert, args.outdir)
