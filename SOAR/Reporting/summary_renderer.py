@@ -197,7 +197,7 @@ Generated: {{ summary_generated_at }}
 No indicators found.
 {% endif %}
 
-## Severity
+## Severity Triage Assessment
 
 - Score: {{ severity.score }}/100
 - Classification: {{ severity.bucket }}
