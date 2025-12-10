@@ -7,6 +7,7 @@ Responsibilities:
 - Convert raw alert into normalized internal shape
 - Preserve original alert as source reference
 - Flatten indicators into a list
+- Generate unique incident ID
 
 Why important:
 - Enables SIEM/SOC tooling interoperability
@@ -15,8 +16,29 @@ Why important:
 
 from typing import Any, Dict, List
 import copy
+import uuid
+from datetime import datetime
 
 __all__ = ["normalize"]
+
+
+def _generate_incident_id() -> str:
+	"""
+	Generate a unique incident ID.
+	
+	Format: INC-<ISO_TIMESTAMP>-<UUID_SHORT>
+	Example: INC-20250809T140310Z-a7f2b1c3
+	
+	Returns:
+		Unique incident ID string
+	"""
+	# Get current UTC timestamp in ISO format
+	iso_timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+	
+	# Get first 8 chars of UUID hex (sufficient uniqueness)
+	uuid_short = uuid.uuid4().hex[:8]
+	
+	return f"INC-{iso_timestamp}-{uuid_short}"
 
 
 def _validate_raw_alert(alert: Dict[str, Any]) -> None:
@@ -129,12 +151,16 @@ def normalize(alert: Dict[str, Any]) -> Dict[str, Any]:
 	"""
 	_validate_raw_alert(alert)
 
+	# Generate unique incident ID
+	incident_id = _generate_incident_id()
+
 	flattened_indicators = _flatten_indicators(alert["indicators"])
 
 
 	# Build complete normalized alert preserving all original top-level fields
     
 	normalized_alert = copy.deepcopy(alert)
+	normalized_alert["incident_id"] = incident_id
 	normalized_alert["source_alert"] = copy.deepcopy(alert)
 	normalized_alert["indicators"] = flattened_indicators
 
