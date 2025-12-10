@@ -121,3 +121,37 @@ class DeviceIsolationExecutor:
 			# Graceful degradation: log failures don't break the pipeline
 			return False
 
+	def generate_action_entry(self, device_id: str, incident_id: str) -> Dict[str, str]:
+		"""
+		Generate a structured action entry for response tracking.
+		
+		This is separate from logging to allow Response stage to track actions
+		in the alert JSON while also maintaining the isolation.log file.
+		
+		Args:
+			device_id: Device ID being isolated
+			incident_id: Incident ID that triggered the isolation
+		
+		Returns:
+			Dict with keys: type, target, result, ts
+			Example: {"type": "isolate", "target": "device:dev-9001", "result": "isolated", "ts": "2025-12-09T15:30:45Z"}
+		
+		Raises:
+			ValueError: If device_id or incident_id is invalid
+		"""
+		if not isinstance(device_id, str) or not device_id.strip():
+			raise ValueError("device_id must be a non-empty string")
+		if not isinstance(incident_id, str) or not incident_id.strip():
+			raise ValueError("incident_id must be a non-empty string")
+		
+		# Generate ISO timestamp
+		iso_timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+		
+		# Return action dictionary
+		return {
+			"type": "isolate",
+			"target": f"device:{device_id}",
+			"result": "isolated",
+			"ts": iso_timestamp
+		}
+

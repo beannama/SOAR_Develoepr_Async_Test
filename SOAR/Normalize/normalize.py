@@ -163,5 +163,8 @@ def normalize(alert: Dict[str, Any]) -> Dict[str, Any]:
 	normalized_alert["incident_id"] = incident_id
 	normalized_alert["source_alert"] = copy.deepcopy(alert)
 	normalized_alert["indicators"] = flattened_indicators
+	
+	# Initialize actions array for response stage
+	normalized_alert["actions"] = []
 
 	return normalized_alert

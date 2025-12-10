@@ -92,15 +92,21 @@ def respond(alert: Dict[str, Any]) -> Dict[str, Any]:
 	device_id = alert.get("asset", {}).get("device_id", "")
 	incident_id = alert.get("incident_id", "")
 	
+	# Initialize actions array if not present
+	if "actions" not in alert or not isinstance(alert.get("actions"), list):
+		alert["actions"] = []
+	
 	# Evaluate device isolation
 	should_isolate = device_isolation_executor.should_isolate(severity_score, device_id)
 
 	if should_isolate:
-		# Execute isolation action
+		# Generate action entry before execution
+		action_entry = device_isolation_executor.generate_action_entry(device_id, incident_id)
+		
+		# Append action to alert
+		alert["actions"].append(action_entry)
+		
+		# Execute isolation action (writes to isolation.log)
 		device_isolation_executor.execute_isolation(device_id, incident_id)
 	
-
-	
-	result = alert.copy()
-	
-	return result
+	return alert
