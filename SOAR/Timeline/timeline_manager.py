@@ -76,15 +76,6 @@ class TimelineManager:
 			if not isinstance(details, str) or not details.strip():
 				raise ValueError("timeline entry details must be a non-empty string")
 
-		# Optional ordering check: stages should not go backwards
-		stage_order = {name: idx for idx, name in enumerate(sorted(TIMELINE_STAGES))}
-		prev = -1
-		for entry in timeline:
-			stage_idx = stage_order.get(entry.get("stage"), -1)
-			if stage_idx < prev:
-				raise ValueError("timeline stages appear out of order")
-			prev = stage_idx
-
 	def get(self, alert: Dict[str, Any]) -> List[Dict[str, Any]]:
 		"""Return timeline list or empty list if missing."""
 		if not isinstance(alert, dict):

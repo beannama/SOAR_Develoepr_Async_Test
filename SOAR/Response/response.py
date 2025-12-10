@@ -57,7 +57,7 @@ def _validate_triaged_alert(alert: Dict[str, Any]) -> None:
 	if not isinstance(alert, dict):
 		raise ValueError("alert must be a dictionary")
 	
-	if "incident_id" not in alert or not isinstance(alert.get("incident_id"), str):
+	if "incident_id" not in alert or not isinstance(alert.get("incident_id"), str) or not alert["incident_id"].strip():
 		raise ValueError("alert['incident_id'] must be a non-empty string")
 	
 	if "triage" not in alert or not isinstance(alert.get("triage"), dict):

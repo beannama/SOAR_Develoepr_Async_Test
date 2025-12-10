@@ -34,12 +34,12 @@ SAMPLE_ALERT = {
 def load_alert(path: str = None, use_sample: bool = False) -> dict:
     """Load an alert from a JSON file or return a sample alert."""
     if use_sample:
-        return SAMPLE_ALERT
+        return SAMPLE_ALERT.copy()
 
     if path is None or not os.path.isfile(path):
         raise FileNotFoundError("Alert file not found.")
 
-    with open(path, 'r') as file:
+    with open(path, 'r', encoding='utf-8') as file:
         alert = json.load(file)
 
     return alert

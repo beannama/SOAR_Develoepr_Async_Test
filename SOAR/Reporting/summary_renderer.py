@@ -24,7 +24,11 @@ try:
 except ImportError:
 	JINJA2_AVAILABLE = False
 
-from SOAR.Reporting.incident_exporter import IncidentDataExtractor, _get_allowlist_loader
+from SOAR.Reporting.incident_exporter import (
+	IncidentDataExtractor,
+	_get_allowlist_loader,
+	_build_config_path
+)
 
 __all__ = ["render_summary"]
 
