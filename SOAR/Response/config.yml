@@ -1,0 +1,9 @@
+# Response Actions Configuration
+
+# Device Isolation Action
+device_isolation:
+  enabled: true
+  severity_threshold: 70
+  allowlist_path: "../configs/allowlists.yml"
+  log_path: "../../out/isolation.log"
+

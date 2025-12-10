@@ -1,0 +1,14 @@
+{
+  "alert_id": "test-002",
+  "source": "test",
+  "type": "Malware",
+  "created_at": "2025-12-09T15:30:00Z",
+  "asset": { "device_id": "dev-0000", "hostname": "SAFE-PC", "ip": "10.0.0.1" },
+  "indicators": {
+    "ipv4": ["1.1.1.1"],
+    "domains": [],
+    "urls": [],
+    "sha256": []
+  },
+  "raw": { "provider": "test", "workspace": "test", "rule_id": "TEST-001" }
+}
