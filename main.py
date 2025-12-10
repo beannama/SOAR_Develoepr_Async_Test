@@ -29,6 +29,7 @@ from SOAR.Normalize.normalize import normalize
 from SOAR.Enrichment.enricher import enrich
 from SOAR.Triage.triage import triage
 from SOAR.Response.response import respond
+from SOAR.Reporting.incident_exporter import export_incident
 
 def main():
     args = parse_args()
@@ -48,6 +49,9 @@ def main():
 
     # Execute response actions
     alert = respond(alert)
+
+    # Export incident to JSON
+    export_incident(alert, args.outdir)
 
     pretty_print = json.dumps(alert, indent=2)
     print(pretty_print)
