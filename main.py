@@ -72,7 +72,5 @@ def main():
     # Generate Markdown summary
     render_summary(alert, args.outdir)
 
-    pretty_print = json.dumps(alert, indent=2)
-    print(pretty_print)
 if __name__ == "__main__":
     main()
