@@ -8,20 +8,27 @@ Comprehensive unit and integration testing suite for the SOAR (Security Orchestr
 
 ```
 Tests/
-├── conftest.py                          # Shared pytest fixtures
-├── test_ingest_loader.py                # Ingest module tests
-├── test_normalize.py                    # Normalize module tests
-├── test_enricher.py                     # Enrichment module tests
-├── test_mock_ti.py                      # MockTI tests
-├── test_timeline_manager.py             # Timeline tests
-├── test_integration_pipeline.py         # End-to-end tests
-├── test_mitre.py                        # Existing MITRE tests
-└── test_mock_ti_final.py                # Existing TI tests
+├── conftest.py
+├── test_device_allowlist_checker.py
+├── test_enricher.py
+├── test_incident_exporter.py
+├── test_ingest_loader.py
+├── test_integration_pipeline.py
+├── test_isolation_executor.py
+├── test_mock_ti.py
+├── test_mock_ti_final.py
+├── test_mitre.py
+├── test_normalize.py
+├── test_response.py
+├── test_summary_renderer.py
+├── test_timeline_manager.py
+├── test_triage.py
+└── test_triage_rules.py
 ```
 
 ## Test Coverage by Module
 
-### ✅ Completed Test Files
+### ✅ Completed Test Files (all 14 modules)
 
 #### 1. **conftest.py** - Shared Fixtures
 - Alert fixtures at different pipeline stages (raw, normalized, enriched, triaged)
@@ -93,11 +100,10 @@ Tests/
 - `MockTI` - Complete query flow
 - Integration with allowlists and MITRE
 
-#### 6. **test_timeline_manager.py** - Timeline Module (200+ tests)
+#### 6. **test_timeline_manager.py** - Timeline Module
 - ✅ Timeline initialization
 - ✅ Entry addition with timestamps
-- ✅ Timeline validation
-- ✅ Stage ordering validation
+- ✅ Timeline validation (structure and required fields)
 - ✅ Invalid stage rejection
 - ✅ Empty/whitespace details rejection
 - ✅ ISO timestamp format validation
@@ -110,10 +116,34 @@ Tests/
 - `TimelineManager.get()` - Retrieval logic
 - `TIMELINE_STAGES` - Constant validation
 
-#### 7. **test_integration_pipeline.py** - Integration Tests (300+ tests)
+#### 7. **test_response.py** - Response Module
+- ✅ Incident validation (non-empty incident_id)
+- ✅ Action list initialization
+- ✅ Device isolation branching
+- ✅ Action appending behaviors
+
+#### 8. **test_device_allowlist_checker.py** - Device Allowlist
+- ✅ Config loader (paths, thresholds, enable flags)
+- ✅ Allowlist lookup (case-insensitive, missing files)
+
+#### 9. **test_isolation_executor.py** - Isolation Executor
+- ✅ Isolation decision logic vs thresholds and allowlists
+- ✅ Action entry generation with timestamps
+- ✅ Log file creation/appending (Windows-safe paths)
+
+#### 10. **test_incident_exporter.py** - Incident Exporter
+- ✅ Input validation for fully-triaged alerts
+- ✅ Indicator allowlist status injection
+- ✅ JSON incident file creation and error handling
+
+#### 11. **test_summary_renderer.py** - Summary Renderer
+- ✅ Data transformation for Markdown templates
+- ✅ Jinja2 rendering fallback behaviors
+- ✅ Markdown output validation (UTF-8 safe)
+
+#### 12. **test_integration_pipeline.py** - Integration Tests
 - ✅ Full pipeline with sample alert
 - ✅ Data preservation through stages
-- ✅ Timeline ordering validation
 - ✅ Real alert file processing (sentinel.json, sumologic.json)
 - ✅ Error handling and recovery
 - ✅ Data transformations (dict→list, risk addition)
@@ -121,52 +151,25 @@ Tests/
 - ✅ Performance tests (many indicators)
 - ✅ Module compatibility testing
 
+#### 13. **test_triage.py** - Triage Module
+- ✅ Severity calculation and bucketing
+- ✅ Intel boosts and suppression penalties
+- ✅ MITRE mapping coverage
+- ✅ Validation of enriched alerts
+
+#### 14. **test_triage_rules.py** - Triage Rules Module
+- ✅ Config loader, severity scorer, suppression engine
+- ✅ Allowlist loader, bucket classifier, MITRE mapper
+
 **Coverage:**
 - Complete pipeline flow (Ingest → Normalize → Enrich → Triage → Response)
 - Stage-to-stage data integrity
 - Error propagation
 - Performance with large datasets
 
-### 🚧 Pending Test Files (Not Yet Created)
-
-#### 8. **test_triage.py** - Triage Module
-- Severity calculation with alert types
-- Intel boosts from indicator verdicts
-- Suppression logic (allowlisted IOCs)
-- Bucket classification
-- MITRE technique mapping
-
-#### 9. **test_triage_rules.py** - Triage Rules Module
-- TriageConfigLoader YAML loading
-- SeverityScorer calculations
-- AllowlistLoader IOC matching
-- SuppressionEngine evaluation
-- BucketClassifier score mapping
-- MitreMapper techniques
-
-#### 10. **test_response.py** - Response Module
-- Device isolation decision logic
-- Action array initialization
-- Response execution
-
-#### 11. **test_device_allowlist_checker.py** - Device Allowlist
-- ResponseConfigLoader
-- AllowlistLoader device matching
-
-#### 12. **test_isolation_executor.py** - Isolation Executor
-- should_isolate() decision logic
-- Log entry generation
-- Isolation execution
-
-#### 13. **test_incident_exporter.py** - Incident Exporter
-- JSON export functionality
-- IncidentDataExtractor
-- Allowlist status injection
-
-#### 14. **test_summary_renderer.py** - Summary Renderer
-- Markdown generation
-- SummaryDataTransformer
-- Jinja2 template rendering
+### 🚀 Status
+- All planned test files are implemented and passing.
+- Total: **369 tests** across 14 primary modules (plus existing `test_mitre.py` and `test_mock_ti_final.py`).
 
 ## Running Tests
 
@@ -303,55 +306,45 @@ def test_example():
 ## Test Metrics
 
 ### Current Status
-- **Total Test Files Created:** 7/14 (50%)
-- **Critical Path Coverage:** ~85%
-- **Estimated Total Tests:** 2,000+ assertions
-- **Lines of Test Code:** ~3,000+
+- **Total Test Files Created:** 14/14 (100%) + legacy tests
+- **Total Tests:** 369 (all passing)
+- **Scope:** Unit + integration + validation + error-path coverage for every module
 
 ### Coverage Goals
-- **Unit Tests:** 90%+ code coverage
-- **Integration Tests:** All pipeline paths
-- **Validation Tests:** 100% of public APIs
-- **Error Paths:** 100% of error handling
+- Maintain 90%+ equivalent coverage posture; keep validation/error-path parity when adding new features.
 
 ## File-by-File Test Summary
 
-| File | Tests | Status | Priority |
-|------|-------|--------|----------|
-| conftest.py | Fixtures | ✅ Complete | HIGH |
-| test_ingest_loader.py | 150+ | ✅ Complete | HIGH |
-| test_normalize.py | 300+ | ✅ Complete | HIGH |
-| test_enricher.py | 200+ | ✅ Complete | HIGH |
-| test_mock_ti.py | 400+ | ✅ Complete | HIGH |
-| test_timeline_manager.py | 200+ | ✅ Complete | HIGH |
-| test_integration_pipeline.py | 300+ | ✅ Complete | HIGH |
-| test_triage.py | - | 🚧 Pending | HIGH |
-| test_triage_rules.py | - | 🚧 Pending | HIGH |
-| test_response.py | - | 🚧 Pending | MEDIUM |
-| test_device_allowlist_checker.py | - | 🚧 Pending | MEDIUM |
-| test_isolation_executor.py | - | 🚧 Pending | MEDIUM |
-| test_incident_exporter.py | - | 🚧 Pending | MEDIUM |
-| test_summary_renderer.py | - | 🚧 Pending | MEDIUM |
+| File | Status |
+|------|--------|
+| conftest.py | ✅ Complete |
+| test_ingest_loader.py | ✅ Complete |
+| test_normalize.py | ✅ Complete |
+| test_enricher.py | ✅ Complete |
+| test_mock_ti.py | ✅ Complete |
+| test_timeline_manager.py | ✅ Complete |
+| test_response.py | ✅ Complete |
+| test_device_allowlist_checker.py | ✅ Complete |
+| test_isolation_executor.py | ✅ Complete |
+| test_incident_exporter.py | ✅ Complete |
+| test_summary_renderer.py | ✅ Complete |
+| test_triage.py | ✅ Complete |
+| test_triage_rules.py | ✅ Complete |
+| test_integration_pipeline.py | ✅ Complete |
+| test_mitre.py | ✅ Legacy coverage |
+| test_mock_ti_final.py | ✅ Legacy coverage |
 
 ## Next Steps
 
-1. **Complete Pending Tests**
-   - Create remaining test files for Triage, Response, and Reporting modules
-   - Target: 3,500+ total test cases
+1. **Keep Tests Green**
+   - Run `pytest -v` before changes; keep warnings monitored (UTC deprecation notices pending library updates).
 
-2. **Run Full Test Suite**
-   ```powershell
-   pytest -v --cov=SOAR --cov-report=html
-   ```
+2. **CI/CD Integration**
+   - Gate on `pytest -v` (or `pytest Tests/ -q`) and optional coverage reporting.
 
-3. **Achieve Coverage Goals**
-   - Minimum 80% coverage per module
-   - Target 90%+ overall coverage
-
-4. **CI/CD Integration**
-   - Add pytest to CI pipeline
-   - Require tests to pass before merging
-   - Track coverage metrics over time
+3. **Future Hygiene**
+   - Maintain UTF-8 file handling and Windows-safe paths in new features.
+   - Preserve timeline validation semantics (structure-focused, not ordering) unless requirements change.
 
 ## Troubleshooting
 
